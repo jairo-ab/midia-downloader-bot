@@ -1,9 +1,11 @@
 ﻿import asyncio
 import logging
 import tempfile
+from pathlib import Path
 
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.constants import ChatAction, ParseMode
+from telegram.error import NetworkError, TimedOut
 from telegram.ext import CommandHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 
 from app.constants import (
@@ -44,6 +46,65 @@ def get_download_semaphore(context: ContextTypes.DEFAULT_TYPE) -> asyncio.Semaph
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
     context.application.bot_data[DOWNLOAD_SEMAPHORE_KEY] = semaphore
     return semaphore
+
+
+async def safe_send_chat_action(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
+    try:
+        await context.bot.send_chat_action(
+            chat_id=chat_id,
+            action=ChatAction.UPLOAD_DOCUMENT,
+            connect_timeout=20,
+            read_timeout=20,
+            write_timeout=20,
+            pool_timeout=20,
+        )
+    except (TimedOut, NetworkError):
+        logger.warning("Falha temporaria ao enviar chat action; seguindo o envio.")
+
+
+async def send_media_with_retries(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    file_path: Path,
+    media_format: str,
+    attempts: int = 3,
+) -> None:
+    for attempt in range(1, attempts + 1):
+        try:
+            if media_format == PREF_MP3:
+                with file_path.open("rb") as media_file:
+                    await context.bot.send_audio(
+                        chat_id=chat_id,
+                        audio=media_file,
+                        title=file_path.stem,
+                        connect_timeout=30,
+                        read_timeout=300,
+                        write_timeout=300,
+                        pool_timeout=30,
+                    )
+            else:
+                with file_path.open("rb") as media_file:
+                    await context.bot.send_video(
+                        chat_id=chat_id,
+                        video=media_file,
+                        supports_streaming=True,
+                        connect_timeout=30,
+                        read_timeout=300,
+                        write_timeout=300,
+                        pool_timeout=30,
+                    )
+            return
+        except (TimedOut, NetworkError) as exc:
+            if attempt >= attempts:
+                raise
+            wait_seconds = attempt * 2
+            logger.warning(
+                "Timeout/rede no envio da midia (tentativa %s/%s): %s",
+                attempt,
+                attempts,
+                exc,
+            )
+            await asyncio.sleep(wait_seconds)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -139,14 +200,13 @@ async def confirm_download(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
                 file_path = await asyncio.to_thread(download_media, url, media_format, temp_dir)
-                await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_DOCUMENT)
-
-                if media_format == PREF_MP3:
-                    with file_path.open("rb") as media_file:
-                        await context.bot.send_audio(chat_id=update.effective_chat.id, audio=media_file, title=file_path.stem)
-                else:
-                    with file_path.open("rb") as media_file:
-                        await context.bot.send_video(chat_id=update.effective_chat.id, video=media_file, supports_streaming=True)
+                await safe_send_chat_action(context, update.effective_chat.id)
+                await send_media_with_retries(
+                    context=context,
+                    chat_id=update.effective_chat.id,
+                    file_path=file_path,
+                    media_format=media_format,
+                )
 
         except Exception as exc:
             logger.exception("Falha no download/envio")
