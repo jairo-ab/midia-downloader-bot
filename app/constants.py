@@ -1,0 +1,9 @@
+CHOOSING_FORMAT, WAITING_URL, CONFIRMING_DOWNLOAD = range(3)
+
+PREF_VIDEO = "video"
+PREF_MP3 = "mp3"
+YES = "sim"
+NO = "nao"
+
+MAX_CONCURRENT_DOWNLOADS = 3
+DOWNLOAD_SEMAPHORE_KEY = "download_semaphore"

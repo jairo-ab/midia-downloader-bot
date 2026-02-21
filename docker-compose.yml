@@ -1,0 +1,16 @@
+services:
+  bot:
+    image: python:3.12-slim
+    container_name: midia-downloader-bot
+    working_dir: /app
+    env_file:
+      - .env
+    volumes:
+      - ./:/app
+    command: >
+      sh -c "apt-get update &&
+      apt-get install -y --no-install-recommends ffmpeg &&
+      rm -rf /var/lib/apt/lists/* &&
+      pip install --no-cache-dir -r requirements.txt &&
+      python bot.py"
+    restart: unless-stopped
