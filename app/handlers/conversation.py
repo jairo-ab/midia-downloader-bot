@@ -240,4 +240,5 @@ def build_conversation_handler() -> ConversationHandler:
             CONFIRMING_DOWNLOAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_download)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True,
     )

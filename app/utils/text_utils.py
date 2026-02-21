@@ -24,10 +24,19 @@ def is_probably_url(text: str) -> bool:
     return text.startswith("http://") or text.startswith("https://")
 
 
-def format_duration(seconds: int | None) -> str:
+def format_duration(seconds: int | float | None) -> str:
     if seconds is None:
         return "desconhecida"
-    hours, rem = divmod(seconds, 3600)
+
+    try:
+        total_seconds = int(seconds)
+    except (TypeError, ValueError):
+        return "desconhecida"
+
+    if total_seconds < 0:
+        return "desconhecida"
+
+    hours, rem = divmod(total_seconds, 3600)
     minutes, secs = divmod(rem, 60)
     if hours:
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
@@ -36,4 +45,3 @@ def format_duration(seconds: int | None) -> str:
 
 def escape_html(text: str) -> str:
     return html.escape(text)
-
