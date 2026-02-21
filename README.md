@@ -55,6 +55,14 @@ python bot.py
 
 ## Executar com Docker Compose
 
+Primeira execução (ou após mudar dependências/Dockerfile):
+
+```powershell
+docker compose up -d --build
+```
+
+Execuções seguintes (sem rebuild):
+
 ```powershell
 docker compose up -d
 ```
@@ -69,6 +77,12 @@ Parar:
 
 ```powershell
 docker compose down
+```
+
+Reiniciar rápido (sem rebuild):
+
+```powershell
+docker compose restart
 ```
 
 ## Comandos do bot
