@@ -9,10 +9,10 @@ from app.constants import ACTIVE_DOWNLOADS_KEY, DOWNLOAD_SEMAPHORE_KEY, MAX_CONC
 from app.handlers.commands import (
     about_command,
     build_format_handler,
+    build_rename_handler,
     help_command,
     ping_command,
     queue_command,
-    rename_command,
     settings_command,
     status_command,
 )
@@ -36,13 +36,13 @@ def create_application() -> Application:
     app.bot_data[PENDING_DOWNLOADS_KEY] = 0
     app.add_handler(build_conversation_handler())
     app.add_handler(build_format_handler())
+    app.add_handler(build_rename_handler())
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("ping", ping_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("queue", queue_command))
-    app.add_handler(CommandHandler("rename", rename_command))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_error_handler(handle_unexpected_error)
     return app

@@ -10,6 +10,7 @@ from app.handlers.conversation import get_default_format
 from app.utils.text_utils import normalize_text
 
 WAITING_DEFAULT_FORMAT = 10
+WAITING_RENAME_CHOICE = 11
 logger = logging.getLogger(__name__)
 
 
@@ -58,7 +59,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/ping - Verifica se o bot esta online\n"
         "/status - Mostra status da sua sessao\n"
         "/queue - Mostra fila/execucao de downloads\n"
-        "/rename <on|off> - Ativa/desativa renomeacao automatica\n"
+        "/rename - Ativa/desativa renomeacao automatica\n"
         "/cancel - Cancela o fluxo atual"
     )
     await safe_reply_text(update, text)
@@ -79,7 +80,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         "⚙️ Configuracoes atuais:\n"
         f"- Formato padrao: {default_format}\n\n"
         f"- Rename automatico: {rename_status}\n\n"
-        "Para alterar: /format e /rename <on|off>"
+        "Para alterar: /format e /rename"
     )
     await safe_reply_text(update, text)
 
@@ -117,22 +118,33 @@ async def queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await safe_reply_text(update, text)
 
 
-async def rename_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if context.args:
-        value = normalize_text(context.args[0])
-        if value in {"on", "off"}:
-            context.user_data["rename_enabled"] = value
-            await safe_reply_text(update, f"✏️ Rename automatico: {value.upper()}")
-            return
-        await safe_reply_text(update, "ℹ️ Uso: /rename <on|off>")
-        return
-
+async def start_rename_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     current = "ON" if get_rename_enabled(context) else "OFF"
     await safe_reply_text(
         update,
-        f"✏️ Rename automatico atual: {current}\n"
-        "Para alterar: /rename on ou /rename off",
+        f"✏️ Rename automatico atual: {current}\nEscolha a opcao:",
+        reply_markup=ReplyKeyboardMarkup([["ON", "OFF"]], resize_keyboard=True, one_time_keyboard=True),
     )
+    return WAITING_RENAME_CHOICE
+
+
+async def receive_rename_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    value = normalize_text(update.message.text or "")
+    if value not in {"on", "off"}:
+        await safe_reply_text(
+            update,
+            "❌ Escolha invalida. Toque em ON ou OFF.",
+            reply_markup=ReplyKeyboardMarkup([["ON", "OFF"]], resize_keyboard=True, one_time_keyboard=True),
+        )
+        return WAITING_RENAME_CHOICE
+
+    context.user_data["rename_enabled"] = value
+    await safe_reply_text(
+        update,
+        f"✅ Rename automatico: {value.upper()}",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    return ConversationHandler.END
 
 
 async def start_format_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -190,4 +202,15 @@ def build_format_handler() -> ConversationHandler:
             WAITING_DEFAULT_FORMAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_format_choice)],
         },
         fallbacks=[CommandHandler("cancel", cancel_format_command)],
+    )
+
+
+def build_rename_handler() -> ConversationHandler:
+    return ConversationHandler(
+        entry_points=[CommandHandler("rename", start_rename_command)],
+        states={
+            WAITING_RENAME_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_rename_choice)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel_format_command)],
+        allow_reentry=True,
     )
