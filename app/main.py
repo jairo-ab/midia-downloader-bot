@@ -5,8 +5,17 @@ from telegram import ReplyKeyboardRemove, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from app.config import load_token
-from app.constants import DOWNLOAD_SEMAPHORE_KEY, MAX_CONCURRENT_DOWNLOADS
-from app.handlers.commands import about_command, build_format_handler, help_command, settings_command
+from app.constants import ACTIVE_DOWNLOADS_KEY, DOWNLOAD_SEMAPHORE_KEY, MAX_CONCURRENT_DOWNLOADS, PENDING_DOWNLOADS_KEY
+from app.handlers.commands import (
+    about_command,
+    build_format_handler,
+    help_command,
+    ping_command,
+    queue_command,
+    rename_command,
+    settings_command,
+    status_command,
+)
 from app.handlers.conversation import build_conversation_handler, cancel, clear_flow_data
 
 logger = logging.getLogger(__name__)
@@ -23,11 +32,17 @@ def create_application() -> Application:
     token = load_token()
     app = Application.builder().token(token).build()
     app.bot_data[DOWNLOAD_SEMAPHORE_KEY] = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
+    app.bot_data[ACTIVE_DOWNLOADS_KEY] = 0
+    app.bot_data[PENDING_DOWNLOADS_KEY] = 0
     app.add_handler(build_conversation_handler())
     app.add_handler(build_format_handler())
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("settings", settings_command))
+    app.add_handler(CommandHandler("ping", ping_command))
+    app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("queue", queue_command))
+    app.add_handler(CommandHandler("rename", rename_command))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_error_handler(handle_unexpected_error)
     return app

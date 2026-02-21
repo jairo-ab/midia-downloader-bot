@@ -1,5 +1,6 @@
 ﻿import asyncio
 import logging
+import re
 import tempfile
 from pathlib import Path
 
@@ -9,11 +10,13 @@ from telegram.error import NetworkError, TimedOut
 from telegram.ext import CommandHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 
 from app.constants import (
+    ACTIVE_DOWNLOADS_KEY,
     CHOOSING_FORMAT,
     CONFIRMING_DOWNLOAD,
     DOWNLOAD_SEMAPHORE_KEY,
     MAX_CONCURRENT_DOWNLOADS,
     NO,
+    PENDING_DOWNLOADS_KEY,
     PREF_MP3,
     PREF_VIDEO,
     WAITING_URL,
@@ -32,10 +35,43 @@ def get_default_format(context: ContextTypes.DEFAULT_TYPE) -> str:
     return PREF_VIDEO
 
 
+def get_rename_enabled(context: ContextTypes.DEFAULT_TYPE) -> bool:
+    value = normalize_text(str(context.user_data.get("rename_enabled", "off")))
+    return value in {"on", "sim", "true", "1"}
+
+
 def clear_flow_data(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop("selected_format", None)
     context.user_data.pop("url", None)
     context.user_data.pop("info", None)
+
+
+def _decrement_bot_counter(context: ContextTypes.DEFAULT_TYPE, key: str) -> None:
+    current = int(context.application.bot_data.get(key, 0))
+    context.application.bot_data[key] = max(current - 1, 0)
+
+
+def build_safe_file_stem(raw_title: str) -> str:
+    cleaned = raw_title.strip()[:120]
+    cleaned = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
+    return cleaned or "midia"
+
+
+def rename_downloaded_file(file_path: Path, title: str) -> Path:
+    safe_stem = build_safe_file_stem(title)
+    target = file_path.with_name(f"{safe_stem}{file_path.suffix}")
+    if target == file_path:
+        return file_path
+
+    if not target.exists():
+        return file_path.rename(target)
+
+    for idx in range(2, 1000):
+        candidate = file_path.with_name(f"{safe_stem}_{idx}{file_path.suffix}")
+        if not candidate.exists():
+            return file_path.rename(candidate)
+    return file_path
 
 
 def get_download_semaphore(context: ContextTypes.DEFAULT_TYPE) -> asyncio.Semaphore:
@@ -190,29 +226,52 @@ async def confirm_download(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return ConversationHandler.END
 
     semaphore = get_download_semaphore(context)
+    context.application.bot_data[PENDING_DOWNLOADS_KEY] = int(
+        context.application.bot_data.get(PENDING_DOWNLOADS_KEY, 0)
+    ) + 1
+    entered_semaphore = False
+
     if semaphore.locked():
         await update.message.reply_text(
-            "Temos 3 downloads em andamento. Seu pedido entrou na fila e vai iniciar automaticamente."
+            f"Temos {MAX_CONCURRENT_DOWNLOADS} downloads em andamento. "
+            "Seu pedido entrou na fila e vai iniciar automaticamente."
         )
 
-    async with semaphore:
-        await update.message.reply_text("Baixando midia, aguarde...")
-        try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                file_path = await asyncio.to_thread(download_media, url, media_format, temp_dir)
-                await safe_send_chat_action(context, update.effective_chat.id)
-                await send_media_with_retries(
-                    context=context,
-                    chat_id=update.effective_chat.id,
-                    file_path=file_path,
-                    media_format=media_format,
-                )
+    try:
+        async with semaphore:
+            entered_semaphore = True
+            _decrement_bot_counter(context, PENDING_DOWNLOADS_KEY)
+            context.application.bot_data[ACTIVE_DOWNLOADS_KEY] = int(
+                context.application.bot_data.get(ACTIVE_DOWNLOADS_KEY, 0)
+            ) + 1
+            context.user_data["is_downloading"] = True
 
-        except Exception as exc:
-            logger.exception("Falha no download/envio")
-            await update.message.reply_text(f"Erro ao baixar/enviar a midia: {exc}")
-            clear_flow_data(context)
-            return ConversationHandler.END
+            await update.message.reply_text("Baixando midia, aguarde...")
+            try:
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    file_path = await asyncio.to_thread(download_media, url, media_format, temp_dir)
+                    if get_rename_enabled(context):
+                        info = context.user_data.get("info") or {}
+                        file_path = rename_downloaded_file(file_path, str(info.get("title") or "midia"))
+                    await safe_send_chat_action(context, update.effective_chat.id)
+                    await send_media_with_retries(
+                        context=context,
+                        chat_id=update.effective_chat.id,
+                        file_path=file_path,
+                        media_format=media_format,
+                    )
+
+            except Exception as exc:
+                logger.exception("Falha no download/envio")
+                await update.message.reply_text(f"Erro ao baixar/enviar a midia: {exc}")
+                clear_flow_data(context)
+                return ConversationHandler.END
+    finally:
+        if entered_semaphore:
+            _decrement_bot_counter(context, ACTIVE_DOWNLOADS_KEY)
+        else:
+            _decrement_bot_counter(context, PENDING_DOWNLOADS_KEY)
+        context.user_data.pop("is_downloading", None)
 
     await update.message.reply_text(
         "Download concluido. Envie /start para outro link.",

@@ -7,3 +7,5 @@ NO = "nao"
 
 MAX_CONCURRENT_DOWNLOADS = 3
 DOWNLOAD_SEMAPHORE_KEY = "download_semaphore"
+ACTIVE_DOWNLOADS_KEY = "active_downloads"
+PENDING_DOWNLOADS_KEY = "pending_downloads"
