@@ -11,6 +11,7 @@ from app.utils.text_utils import normalize_text
 
 WAITING_DEFAULT_FORMAT = 10
 WAITING_RENAME_CHOICE = 11
+WAITING_FEEDBACK_MESSAGE = 12
 logger = logging.getLogger(__name__)
 
 
@@ -60,6 +61,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/status - Mostra status da sua sessao\n"
         "/queue - Mostra fila/execucao de downloads\n"
         "/rename - Ativa/desativa renomeacao automatica\n"
+        "/feedback - Envia sugestao/erro para o criador\n"
         "/cancel - Cancela o fluxo atual"
     )
     await safe_reply_text(update, text)
@@ -147,6 +149,76 @@ async def receive_rename_choice(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 
+async def start_feedback_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    admin_chat_id = context.application.bot_data.get("admin_chat_id")
+    if not isinstance(admin_chat_id, int):
+        await safe_reply_text(
+            update,
+            "⚠️ Feedback indisponivel no momento. "
+            "Avise o criador para configurar o ADMIN_CHAT_ID.",
+        )
+        return ConversationHandler.END
+
+    await safe_reply_text(
+        update,
+        "💬 Envie sua mensagem de feedback (sugestao, erro ou melhoria).\n"
+        "Use /cancel para cancelar.",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    return WAITING_FEEDBACK_MESSAGE
+
+
+async def receive_feedback_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    admin_chat_id = context.application.bot_data.get("admin_chat_id")
+    text = (update.message.text or "").strip()
+    if not text:
+        await safe_reply_text(update, "❌ Mensagem vazia. Escreva o feedback ou use /cancel.")
+        return WAITING_FEEDBACK_MESSAGE
+
+    if not isinstance(admin_chat_id, int):
+        await safe_reply_text(
+            update,
+            "⚠️ Feedback indisponivel no momento. "
+            "Tente novamente mais tarde.",
+        )
+        return ConversationHandler.END
+
+    user = update.effective_user
+    sender = user.full_name if user else "desconhecido"
+    username = f"@{user.username}" if user and user.username else "sem-username"
+    user_id = user.id if user else "desconhecido"
+    chat_id = update.effective_chat.id if update.effective_chat else "desconhecido"
+    payload = (
+        "📩 Novo feedback recebido:\n"
+        f"- Usuario: {sender} ({username})\n"
+        f"- User ID: {user_id}\n"
+        f"- Chat ID: {chat_id}\n\n"
+        f"Mensagem:\n{text}"
+    )
+
+    try:
+        await context.bot.send_message(chat_id=admin_chat_id, text=payload)
+    except (TimedOut, NetworkError):
+        logger.warning("Falha de conexao ao enviar feedback ao admin.")
+        await safe_reply_text(
+            update,
+            "⚠️ Nao consegui enviar seu feedback agora por instabilidade de conexao. "
+            "Tente novamente em alguns instantes.",
+        )
+        return ConversationHandler.END
+    except Exception:
+        logger.exception("Erro ao enviar feedback ao admin.")
+        await safe_reply_text(
+            update,
+            "⚠️ Nao consegui enviar seu feedback agora. "
+            "Tente novamente em alguns instantes.",
+        )
+        return ConversationHandler.END
+
+    await safe_reply_text(update, "✅ Feedback enviado com sucesso. Obrigado!")
+    return ConversationHandler.END
+
+
 async def start_format_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if context.args:
         value = normalize_text(context.args[0])
@@ -210,6 +282,19 @@ def build_rename_handler() -> ConversationHandler:
         entry_points=[CommandHandler("rename", start_rename_command)],
         states={
             WAITING_RENAME_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_rename_choice)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel_format_command)],
+        allow_reentry=True,
+    )
+
+
+def build_feedback_handler() -> ConversationHandler:
+    return ConversationHandler(
+        entry_points=[CommandHandler("feedback", start_feedback_command)],
+        states={
+            WAITING_FEEDBACK_MESSAGE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_feedback_message)
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel_format_command)],
         allow_reentry=True,

@@ -4,10 +4,11 @@ import logging
 from telegram import ReplyKeyboardRemove, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-from app.config import load_token
+from app.config import load_admin_chat_id, load_token
 from app.constants import ACTIVE_DOWNLOADS_KEY, DOWNLOAD_SEMAPHORE_KEY, MAX_CONCURRENT_DOWNLOADS, PENDING_DOWNLOADS_KEY
 from app.handlers.commands import (
     about_command,
+    build_feedback_handler,
     build_format_handler,
     build_rename_handler,
     help_command,
@@ -30,13 +31,16 @@ def configure_logging() -> None:
 
 def create_application() -> Application:
     token = load_token()
+    admin_chat_id = load_admin_chat_id()
     app = Application.builder().token(token).build()
     app.bot_data[DOWNLOAD_SEMAPHORE_KEY] = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
     app.bot_data[ACTIVE_DOWNLOADS_KEY] = 0
     app.bot_data[PENDING_DOWNLOADS_KEY] = 0
+    app.bot_data["admin_chat_id"] = admin_chat_id
     app.add_handler(build_conversation_handler())
     app.add_handler(build_format_handler())
     app.add_handler(build_rename_handler())
+    app.add_handler(build_feedback_handler())
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("settings", settings_command))

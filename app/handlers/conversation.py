@@ -40,6 +40,18 @@ def get_rename_enabled(context: ContextTypes.DEFAULT_TYPE) -> bool:
     return value in {"on", "sim", "true", "1"}
 
 
+def is_instagram_block_error(url: str, exc: Exception) -> bool:
+    if "instagram.com" not in url.lower():
+        return False
+    message = str(exc).lower()
+    indicators = (
+        "rate-limit reached",
+        "login required",
+        "requested content is not available",
+    )
+    return any(indicator in message for indicator in indicators)
+
+
 def clear_flow_data(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop("selected_format", None)
     context.user_data.pop("url", None)
@@ -177,7 +189,17 @@ async def receive_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         info = await asyncio.to_thread(extract_media_info, url)
     except Exception as exc:
         logger.exception("Falha ao extrair info")
-        await update.message.reply_text(f"Nao consegui ler essa URL. Erro: {exc}")
+        if is_instagram_block_error(url, exc):
+            await update.message.reply_text(
+                "Nao consegui acessar essa midia no Instagram agora. "
+                "O Instagram bloqueou temporariamente esse video. "
+                "Tente novamente em alguns instantes ou envie outro link."
+            )
+            return WAITING_URL
+        await update.message.reply_text(
+            "Nao consegui ler essa URL no momento. "
+            "Tente novamente em alguns instantes ou envie outro link."
+        )
         return WAITING_URL
 
     selected_format = context.user_data.get("selected_format") or get_default_format(context)
