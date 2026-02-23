@@ -37,10 +37,10 @@ def create_application() -> Application:
     app.bot_data[ACTIVE_DOWNLOADS_KEY] = 0
     app.bot_data[PENDING_DOWNLOADS_KEY] = 0
     app.bot_data["admin_chat_id"] = admin_chat_id
-    app.add_handler(build_conversation_handler())
+    app.add_handler(build_feedback_handler())
     app.add_handler(build_format_handler())
     app.add_handler(build_rename_handler())
-    app.add_handler(build_feedback_handler())
+    app.add_handler(build_conversation_handler())
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("settings", settings_command))
